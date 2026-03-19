@@ -1,7 +1,3 @@
-// ============================================================
-// KHỞI TẠO, CONFIG & MICROSOFT CLARITY
-// ============================================================
-
 /**
  * Config toàn cục — ghi đè bằng AdLibInit()
  * refresh.interval = 0  → tắt refresh
@@ -204,7 +200,6 @@ function _checkDevice(isDisplay) {
   if (isDisplay === 2 && !isMobile) return false;
   return true;
 }
-}
 
 function _findContentArea(target) {
   if (target) return document.querySelector(target);
@@ -343,7 +338,8 @@ function AdxInterstitial(adUnit) {
   window.googletag = window.googletag || { cmd: [] };
   googletag.cmd.push(function () {
     var slot = googletag.defineOutOfPageSlot(adUnit, googletag.enums.OutOfPageFormat.INTERSTITIAL);
-    if (slot) slot.addService(googletag.pubads());
+    if (!slot) return;
+    slot.addService(googletag.pubads());
     googletag.pubads().enableSingleRequest();
     googletag.enableServices();
     googletag.display(slot);
@@ -442,7 +438,7 @@ function AdxCatfish(adUnit, isDisplay, pageView, closeBtnPos, bottom) {
       }, 400);
     }
     lastST = st <= 0 ? 0 : st;
-  }, false);
+  }, { passive: true });
 }
 
 function _renderCatfishAd(adUnit, gpt_id, cId, closeBtnPos, bottom) {
@@ -506,6 +502,7 @@ function AdxCatfishAuto(adUnit, adSize, isDisplay, pageView, bottom) {
 
   if (!_checkDevice(isDisplay)) return;
   if (!_checkPageView(adUnit, pageView)) return;
+  if (!_adlib_checkFrequency('catfish')) return;
 
   _checkGPTExists();
   var gpt_id = _randomID();
@@ -548,7 +545,7 @@ function AdxCatfishAuto(adUnit, adSize, isDisplay, pageView, bottom) {
 // ============================================================
 
 /**
- * AdxFirstView: Popup giữa màn hình — có thể lọc theo thiết bị & lượt xem
+ * AdxFirstView: Popup giữa màn hình — hỗ trợ cả PC & Mobile
  * @param {string} adUnit
  * @param {number} [isDisplay=0]      - 0:cả hai | 1:chỉ PC | 2:chỉ Mobile
  * @param {array}  [pageView=[0]]     - [0]:tất cả | [1,3]:chỉ lượt 1 & 3
@@ -567,9 +564,10 @@ function AdxFirstView(adUnit, isDisplay, pageView, closeBtnPos) {
   var gpt_id = _randomID();
   var cId    = 'adlib-fv-' + gpt_id;
 
+  // Overlay full màn hình, wrapper tự co theo kích thước ad thực tế
   document.body.insertAdjacentHTML('beforeend', `
     <div id="${cId}" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:2147483646;background:rgba(0,0,0,.8);display:flex;justify-content:center;align-items:center;">
-      <div id="wrap-fv-${gpt_id}" style="position:relative;background:#fff;line-height:0;box-shadow:0 0 30px rgba(0,0,0,.6);max-width:95vw;max-height:95vh;overflow:visible;">
+      <div id="wrap-fv-${gpt_id}" style="position:relative;background:#fff;line-height:0;box-shadow:0 0 30px rgba(0,0,0,.6);max-width:95vw;max-height:95vh;overflow:visible;display:inline-block;">
         <div id="${gpt_id}"></div>
       </div>
     </div>`);
@@ -577,13 +575,19 @@ function AdxFirstView(adUnit, isDisplay, pageView, closeBtnPos) {
   window.googletag = window.googletag || { cmd: [] };
   googletag.cmd.push(function () {
     var mapping = googletag.sizeMapping()
-      .addSize([1024, 0], [[300, 600], [300, 400], [336, 280], [300, 250]])
-      .addSize([768, 0],  [[336, 280], [300, 250]])
-      .addSize([0, 0],    [[300, 600], [300, 250], [336, 280]])
+      // PC ≥ 1024px: ưu tiên size lớn, thêm 640×480 và 580×400
+      .addSize([1024, 0], [[640, 480], [580, 400], [300, 600], [300, 400], [336, 280], [300, 250]])
+      // Tablet 768–1023px
+      .addSize([768, 0],  [[300, 600], [300, 400], [336, 280], [300, 250]])
+      // Mobile < 768px: size nhỏ vừa màn hình
+      .addSize([0, 0],    [[300, 250], [336, 280], [300, 600]])
       .build();
 
-    var slot = googletag.defineSlot(adUnit, [[300, 600], [300, 400], [336, 280], [300, 250]], gpt_id)
-      .defineSizeMapping(mapping).addService(googletag.pubads());
+    var allSizes = [[640, 480], [580, 400], [300, 600], [300, 400], [336, 280], [300, 250]];
+
+    var slot = googletag.defineSlot(adUnit, allSizes, gpt_id)
+      .defineSizeMapping(mapping)
+      .addService(googletag.pubads());
     googletag.pubads().enableSingleRequest();
     googletag.enableServices();
     googletag.display(gpt_id);
@@ -591,9 +595,6 @@ function AdxFirstView(adUnit, isDisplay, pageView, closeBtnPos) {
     googletag.pubads().addEventListener('slotRenderEnded', function (e) {
       if (e.slot === slot && !e.isEmpty) {
         _renderCloseBtn('wrap-fv-' + gpt_id, slot, 0, closeBtnPos);
-        var btn = document.querySelector('#wrap-fv-' + gpt_id + ' .adlib-close-btn');
-        if (btn) { btn.style.bottom = '100%'; btn.style.zIndex = '9999'; }
-        // FirstView không refresh — popup chỉ hiện 1 lần, không cần refresh
       } else if (e.slot === slot && e.isEmpty) {
         var c = document.getElementById(cId); if (c) c.remove();
       }
@@ -626,8 +627,9 @@ function AdxBanner(adUnit, adSize, mapping, element, insertPosition, setMin) {
   var gpt_id = _randomID();
   window.googletag = window.googletag || { cmd: [] };
 
+  var adSlot; // hoist ra ngoài để nested cmd.push truy cập được
   googletag.cmd.push(function () {
-    var adSlot = googletag.defineSlot(adUnit, adSize, gpt_id).addService(googletag.pubads());
+    adSlot = googletag.defineSlot(adUnit, adSize, gpt_id).addService(googletag.pubads());
     if (mapping.length) {
       var sm = googletag.sizeMapping();
       mapping.forEach(function (m) {
@@ -658,8 +660,7 @@ function AdxBanner(adUnit, adSize, mapping, element, insertPosition, setMin) {
 
   googletag.cmd.push(function () {
     googletag.display(gpt_id);
-    // Đăng ký refresh engine sau khi display
-    googletag.cmd.push(function () { _adlib_registerRefresh(adSlot, gpt_id); });
+    _adlib_registerRefresh(adSlot, gpt_id);
   });
 }
 
@@ -735,7 +736,7 @@ function AdxInPage(adUnit, element, marginTop) {
   });
 
   var parent = document.querySelectorAll(element)[0];
-  if (!parent) return;
+  if (!parent || parent.childElementCount < 2) return;
   var mid    = Math.min(Math.floor(parent.childElementCount / 2), 4);
   var anchor = 'adlib-ip-anchor-' + gpt_id;
   parent.children[mid - 1].insertAdjacentHTML('afterend', '<div id="' + anchor + '"></div>');
@@ -948,7 +949,10 @@ function _adlib_msAdd(adUnit, element, insertPosition) {
   googletag.cmd.push(function () { googletag.display(gpt_id); });
 }
 
+var _adlib_msScrollBound = false;
 function _adlib_msScroll(marginTop) {
+  if (_adlib_msScrollBound) return;
+  _adlib_msScrollBound = true;
   document.addEventListener('scroll', function () {
     document.querySelectorAll('.adlib-multisize').forEach(function (e) {
       var div  = e.querySelector('.adlib-ms-ad');
@@ -1147,8 +1151,9 @@ function _adlib_scrollRevealBind(cId) {
     var container = document.getElementById(cId);
     if (!wrapper || !container) return;
     var rect = wrapper.getBoundingClientRect();
-    container.style.display = (rect.top < window.innerHeight && rect.bottom > 0) ? 'flex' : 'none';
-  });
+    var inView = rect.top < window.innerHeight && rect.bottom > 0;
+    container.style.display = inView ? 'flex' : 'none';
+  }, { passive: true });
 }
 
 
@@ -1226,26 +1231,35 @@ function AdsenseInPage(client, slotId, element, marginTop) {
 }
 
 /**
- * AdsenseFirstView: Popup AdSense giữa màn hình (chỉ mobile)
- * @param {string} client
- * @param {string} slotId
- * @param {array}  [adSize=[300,600]]
+ * AdsenseFirstView: Popup AdSense giữa màn hình — cả PC & Mobile
+ * @param {string}      client
+ * @param {string}      slotId
+ * @param {array|null}  [adSize=null] - null = tự chọn theo thiết bị
+ *                                      Mobile: [300,250] | PC: [640,480]
  */
 function AdsenseFirstView(client, slotId, adSize) {
-  if (window.innerWidth >= 768) return;
-  adSize = adSize || [300, 600];
+  // Tự chọn size theo thiết bị nếu không truyền
+  var isMobile = window.innerWidth < 768;
+  if (!adSize) adSize = isMobile ? [300, 250] : [640, 480];
+
   _checkAdsenseExists(client);
 
   var fid = 'adlib-asfv-' + Math.floor(Math.random() * 1e6);
   document.body.insertAdjacentHTML('beforeend', `
-    <div id="${fid}" style="display:block;position:fixed;width:100%;height:100vh;top:0;left:0;text-align:center;background:rgba(255,255,255,.7);visibility:hidden;z-index:2147483647;">
-      <div id="${fid}-close" style="display:none;position:absolute;width:85px;height:25px;top:80px;right:0;cursor:pointer;background:rgba(0,112,186,1);padding:2px;border-radius:20px 0 0 20px;z-index:9999;">
-        <span style="position:absolute;font-size:15px;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;">CLOSE</span>
+    <div id="${fid}" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:2147483647;background:rgba(0,0,0,.8);display:flex;justify-content:center;align-items:center;visibility:hidden;">
+      <div style="position:relative;background:#fff;line-height:0;box-shadow:0 0 30px rgba(0,0,0,.6);display:inline-block;max-width:95vw;max-height:95vh;">
+        <div id="${fid}-close" style="display:none;position:absolute;bottom:100%;right:0;cursor:pointer;background:rgba(0,112,186,1);padding:4px 12px;border-radius:5px 5px 0 0;z-index:9999;">
+          <span style="font-size:12px;font-weight:bold;color:#fff;letter-spacing:.05em;">CLOSE ✕</span>
+        </div>
+        <ins class="adsbygoogle"
+             style="display:inline-block;width:${adSize[0]}px;height:${adSize[1]}px;"
+             data-ad-client="${client}"
+             data-ad-slot="${slotId}"></ins>
       </div>
-      <ins class="adsbygoogle" style="display:inline-block;width:${adSize[0]}px;height:${adSize[1]}px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);" data-ad-client="${client}" data-ad-slot="${slotId}"></ins>
     </div>`);
 
   (adsbygoogle = window.adsbygoogle || []).push({});
+
   document.getElementById(fid + '-close').addEventListener('click', function () {
     document.getElementById(fid).style.display = 'none';
   });
@@ -1257,30 +1271,14 @@ function AdsenseFirstView(client, slotId, adSize) {
       document.getElementById(fid + '-close').style.display = 'block';
       clearInterval(intv);
     }
-    if (++timer > 600) clearInterval(intv);
+    // Không có ad sau 10 giây → xóa overlay
+    if (++timer > 10) {
+      var c = document.getElementById(fid); if (c) c.remove();
+      clearInterval(intv);
+    }
   }, 1000);
 }
 
-
-
-
-
-// ============================================================
-// AUTO-INIT
-// Ưu tiên theo thứ tự:
-//   1. ?id=  trong src của chính thẻ script này  → clarityId
-//   2. window.AdLibConfig.clarityId              → ghi đè nếu có
-//
-//  Cách dùng đơn giản nhất (1 thẻ script, id trong URL):
-//    var s = document.createElement('script');
-//    s.src = 'adlib.js?id=YOUR_CLARITY_ID';
-//    s.onload = function () { AdxCatfish('...'); };
-//    document.head.appendChild(s);
-//
-//  Hoặc kết hợp config đầy đủ + id trong URL:
-//    window.AdLibConfig = { refresh: { interval: 30 }, frequency: { cap: 3 } };
-//    s.src = 'adlib.js?id=YOUR_CLARITY_ID';
-// ============================================================
 (function () {
   // Capture ngay khi script đang thực thi — document.currentScript
   // chỉ có giá trị tại thời điểm này, sẽ là null trong callback async
