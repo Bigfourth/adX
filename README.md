@@ -16,7 +16,7 @@ Chỉ cần **1 thẻ script**. Clarity ID truyền qua `?id=` trên URL, config
   };
 
   var s = document.createElement('script');
-  s.src = 'https://cdn.jsdelivr.net/gh/Bigfourth/adsbyBigFourth/adlib.js?id=YOUR_CLARITY_ID';
+  s.src = 'https://cdn.jsdelivr.net/gh/Bigfourth/adX@main/main.js?id=YOUR_CLARITY_ID';
   s.onload = function () {
     // Gọi các hàm quảng cáo ở đây
     AdxCatfish('/NETWORK_CODE/catfish');
@@ -366,7 +366,7 @@ AsenseScrollReveal(
   };
 
   var s = document.createElement('script');
-  s.src = 'https://cdn.jsdelivr.net/gh/Bigfourth/adsbyBigFourth/adlib.js?id=abc123xyz';
+  s.src = 'https://cdn.jsdelivr.net/gh/Bigfourth/adX@main/main.js?id=abc123xyz';
   s.onload = function () {
     AdxSticky('/22796784223/example.com/sticky');
     AdxCatfish('/22796784223/example.com/catfish', 0, [0], 1, 0);
