@@ -1,224 +1,142 @@
 /*!
- * XadCarousel v1.2.0
+ * XadCarousel v1.3.0
  * Carousel Ads — maximize revenue without new placements
  *
- * Faithfully implements the PDF spec:
- *  - AUTO  : @keyframes on animation-wrapper  → translateX(-100%, -200%…)
- *  - MANUAL: radio-button hack on carousel-track → translateX(-slideW% each)
- *  - BOTH  : auto plays, stops when user clicks an arrow/dot
+ * ASYNC-SAFE: works even when loaded with async/defer or from CDN.
+ * Add stub BEFORE loading the library:
  *
- * Usage:
- *   XadCarousel(adUnit, slideCount, height, duration, mode, adSize)
+ *   <script>window.XadCarousel=window.XadCarousel||function(){(window._xadQ=window._xadQ||[]).push(arguments);}</script>
+ *   <script async src="https://cdn.jsdelivr.net/gh/USER/REPO@latest/xad-carousel.js"></script>
  *
- * @param {string} adUnit      GPT ad unit path, e.g. "/1234/my-ad"
- * @param {number} slideCount  Number of slides 2–10  (default 3)
- * @param {number} height      Carousel height in px  (default 300)
- * @param {number} duration    Seconds per slide      (default 5)
- * @param {string} mode        "auto" | "manual" | "both"  (default "auto")
- * @param {Array}  adSize      GPT size array         (default [300,250])
- *
- * Examples:
- *   XadCarousel("/1234/ad", 4, 300, 5)
- *   XadCarousel("/1234/ad", 3, 250, 7, "both")
- *   XadCarousel("/1234/ad", 3, 100, 6, "auto", [728,90])
+ * Usage (same as before):
+ *   XadCarousel("/1234/my-ad", 4, 300, 5)
+ *   XadCarousel("/1234/my-ad", 3, 250, 7, "both")
+ *   XadCarousel("/1234/my-ad", 3, 100, 6, "auto", [728, 90])
  */
 
 (function (global) {
   "use strict";
 
   /* ── state ─────────────────────────────────────────── */
-  var _count         = 0;
-  var _gptLoaded     = false;
-  var _svcEnabled    = false;   // enableServices() called once globally
+  var _count      = 0;
+  var _gptLoaded  = false;
+  var _svcEnabled = false;
 
-  /* ── tiny helpers ──────────────────────────────────── */
+  /* ── helpers ───────────────────────────────────────── */
   function uid()  { return "xadc-" + (++_count) + "-" + Math.random().toString(36).slice(2,6); }
   function px(n)  { return n + "px"; }
-  function pct(n) { return n.toFixed(4) + "%"; }
 
-  function addStyle(css, id) {
-    if (document.getElementById(id)) return;
-    var s = document.createElement("style");
-    s.id = id; s.textContent = css;
-    (document.head || document.documentElement).appendChild(s);
+  function addStyle(css, styleId) {
+    if (document.getElementById(styleId)) return;
+    var el = document.createElement("style");
+    el.id = styleId; el.textContent = css;
+    (document.head || document.documentElement).appendChild(el);
   }
 
   function onReady(fn) {
-    document.readyState === "loading"
-      ? document.addEventListener("DOMContentLoaded", fn)
-      : fn();
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", fn);
+    } else {
+      fn();
+    }
   }
 
   /* ══════════════════════════════════════════════════════
-   * BASE CSS  — injected once per page
+   * BASE CSS — injected once per page
    * ══════════════════════════════════════════════════════ */
   addStyle([
-    /* carousel-container */
-    ".xadc-wrap{",
-      "width:100%;overflow:hidden;position:relative;box-sizing:border-box;",
-    "}",
-
-    /* animation-wrapper  (PDF: display:flex; flex:1 1 100%; width:100%) */
+    ".xadc-wrap{width:100%;overflow:hidden;position:relative;box-sizing:border-box;}",
     ".xadc-anim{display:flex;flex:1 1 100%;width:100%;}",
-
-    /* carousel-track  (PDF: display:flex; flex-shrink:0; width:N*100%) */
-    ".xadc-track{",
-      "display:flex;flex-shrink:0;",
-      "transition:transform .5s ease-in-out;",
-    "}",
-
-    /* carousel-slide  (PDF: flex-shrink:0; display:flex; align/justify center) */
-    /* ── CENTERING FIX ───────────────────────────────────────────────
-       The slide is a flex container so its single child (the GPT div)
-       is centred on both axes.
-       text-align:center  catches inline-block fallback.
-       overflow:visible   lets the GPT iframe breathe — never clip it. */
+    ".xadc-track{display:flex;flex-shrink:0;transition:transform .5s ease-in-out;}",
+    /* slide: flex center + text-align for GPT inline-block fallback */
     ".xadc-slide{",
-      "flex-shrink:0;",
-      "display:flex;align-items:center;justify-content:center;",
-      "text-align:center;overflow:visible;",
-      "box-sizing:border-box;background:#f8f8f8;",
+      "flex-shrink:0;display:flex;align-items:center;justify-content:center;",
+      "text-align:center;overflow:visible;box-sizing:border-box;background:#f8f8f8;",
     "}",
-
-    /* GPT injects  <div id="…__container__" style="width:Xpx;height:Ypx">
-       margin:0 auto centres it when the parent is display:flex          */
+    /* GPT injects <div style="width:Xpx;height:Ypx"> — center it */
     ".xadc-slide>div{display:block;margin:0 auto;line-height:0;}",
-
     /* arrows */
     ".xadc-arrow{",
       "position:absolute;top:50%;transform:translateY(-50%);",
       "font-size:1.8rem;line-height:1;color:rgba(0,0,0,.55);",
-      "background:rgba(255,255,255,.8);border:none;",
-      "padding:6px 11px;border-radius:4px;",
-      "cursor:pointer;z-index:20;user-select:none;",
-      "transition:background .2s;",
+      "background:rgba(255,255,255,.8);border:none;padding:6px 11px;",
+      "border-radius:4px;cursor:pointer;z-index:20;user-select:none;transition:background .2s;",
     "}",
     ".xadc-arrow:hover{background:#fff;}",
-    ".xadc-prev{left:8px;} .xadc-next{right:8px;}",
-
+    ".xadc-prev{left:8px;}.xadc-next{right:8px;}",
     /* dots */
     ".xadc-dots{display:flex;justify-content:center;gap:6px;padding:8px 0;}",
-    ".xadc-dot{width:7px;height:7px;border-radius:50%;background:#ccc;",
-      "border:none;padding:0;cursor:pointer;transition:background .25s,transform .25s;}",
+    ".xadc-dot{",
+      "width:7px;height:7px;border-radius:50%;background:#ccc;",
+      "border:none;padding:0;cursor:pointer;transition:background .25s,transform .25s;",
+    "}",
     ".xadc-dot.is-active{background:#555;transform:scale(1.35);}",
   ].join(""), "xad-carousel-base");
-
 
   /* ══════════════════════════════════════════════════════
    * INSTANCE CSS
    * ══════════════════════════════════════════════════════ */
   function buildInstanceCSS(id, n, height, duration, mode) {
     var lines    = [];
-    var slideW   = 100 / n;          // % width of one slide  (inside track)
-    var trackW   = 100 * n;          // % total width of track
-    var totalDur = duration * n;     // total animation duration in seconds
+    var slideW   = 100 / n;
+    var trackW   = 100 * n;
+    var totalDur = duration * n;
     var anim     = id + "-scroll";
 
-    /* track & slide sizing */
     lines.push(
-      /* track width = N * 100%  (PDF: "width: 500%" for 5 slides) */
-      "#" + id + " .xadc-track{width:" + pct(trackW) + ";}",
-
-      /* slide width = 100% / N  (PDF: "width: 20%" for 5 slides)
-         Inline height so GPT reads a non-zero pixel size immediately  */
-      "#" + id + " .xadc-slide{",
-        "width:"      + pct(slideW) + ";",
-        "height:"     + px(height) + ";",
-        "min-height:" + px(height) + ";",
-      "}"
+      "#" + id + " .xadc-track{width:" + trackW.toFixed(4) + "%;}",
+      "#" + id + " .xadc-slide{width:" + slideW.toFixed(4) + "%;height:" + px(height) + ";min-height:" + px(height) + ";}"
     );
 
-    /* ── AUTO keyframes (applied to animation-wrapper) ─────────────
-       PDF example for 5 slides at 15s total (3s per slide):
-         0%,  20% { translateX(0)     }   ← hold slide 1
-        25%,  45% { translateX(-100%) }   ← hold slide 2
-        50%,  70% { translateX(-200%) }   ← hold slide 3
-        75%,  95% { translateX(-300%) }   ← hold slide 4
-       100%       { translateX(-400%) }   ← end on slide 5 (then loops)
-
-       Pattern: each slide occupies (100/n)% of timeline.
-         holdStart = i * (100/n)
-         holdEnd   = i * (100/n) + (100/n)*0.8   ← hold 80%, travel 20%
-         translateX = -i * 100%  (one container-width per step)
-    ─────────────────────────────────────────────────────────────── */
     if (mode !== "manual") {
-      var slot   = 100 / n;          // % of total timeline per slide
-      var hold   = slot * 0.80;      // 80% hold, 20% travel
-      var kf     = "@keyframes " + anim + "{";
-
+      /* keyframes on animation-wrapper: each step = -100% of container width */
+      var slot = 100 / n;
+      var hold = slot * 0.80;
+      var kf   = "@keyframes " + anim + "{";
       for (var i = 0; i < n; i++) {
-        var hs  = (i * slot).toFixed(2);
-        var he  = (i * slot + hold).toFixed(2);
-        /* translateX is -i*100% of animation-wrapper (= container width) */
-        var tx  = (i === 0) ? "0" : "-" + (i * 100) + "%";
+        var hs = (i * slot).toFixed(2);
+        var he = (i * slot + hold).toFixed(2);
+        var tx = i === 0 ? "0" : "-" + (i * 100) + "%";
         kf += hs + "%," + he + "%{transform:translateX(" + tx + ");}";
       }
-      /* final frame */
-      kf += "100%{transform:translateX(-" + ((n-1)*100) + "%);}";
+      kf += "100%{transform:translateX(-" + ((n - 1) * 100) + "%);}";
       kf += "}";
-      lines.push(kf);
-
       lines.push(
+        kf,
         "#" + id + " .xadc-anim{animation:" + anim + " " + totalDur + "s infinite;}",
-        /* pause on hover */
         "#" + id + ":hover .xadc-anim{animation-play-state:paused;}"
       );
     }
-
     return lines.join("\n");
   }
 
-
   /* ══════════════════════════════════════════════════════
-   * MANUAL / BOTH CSS  — radio-button hack
+   * MANUAL / BOTH CSS — radio-button hack
    * ══════════════════════════════════════════════════════ */
   function buildManualCSS(id, n, mode) {
     if (mode === "auto") return "";
-
-    var slideW = 100 / n;   // % of track per slide
+    var slideW = 100 / n;
     var lines  = [];
 
-    /* hide all arrows by default */
     lines.push("#" + id + " .xadc-nav label{display:none;}");
 
     for (var i = 1; i <= n; i++) {
-      /* PDF manual translateX formula:
-           -100% / N * (i-1)   where N = total slides, i-1 = zero-based index
-         Example 5 slides:  i=1→0%  i=2→-20%  i=3→-40%  i=4→-60%  i=5→-80% */
-      var tx = ((i-1) * slideW).toFixed(4);
-      var txStr = (i === 1) ? "0" : "-" + tx + "%";
-
-      /* show arrows for active slide */
+      var tx    = ((i - 1) * slideW).toFixed(4);
+      var txStr = i === 1 ? "0" : "-" + tx + "%";
       lines.push(
-        "#" + id + "-ad-" + i + ":checked~#" + id + " .xadc-nav-" + i + "{display:block;}"
+        "#" + id + "-ad-" + i + ":checked~#" + id + " .xadc-nav-" + i + "{display:block;}",
+        "#" + id + "-ad-" + i + ":checked~#" + id + " .xadc-track{transform:translateX(" + txStr + ")!important;}",
+        "#" + id + "-ad-" + i + ":checked~#" + id + " .xadc-dot:nth-child(" + i + "){background:#555!important;transform:scale(1.35)!important;}"
       );
-
-      /* translate track (applied to carousel-track, NOT animation-wrapper) */
-      lines.push(
-        "#" + id + "-ad-" + i + ":checked~#" + id + " .xadc-track{" +
-          "transform:translateX(" + txStr + ")!important;}"
-      );
-
-      /* sync dot */
-      lines.push(
-        "#" + id + "-ad-" + i + ":checked~#" + id +
-          " .xadc-dot:nth-child(" + i + "){background:#555!important;transform:scale(1.35)!important;}"
-      );
-
-      /* stop auto-rotate when user picks slide (both mode) */
       if (mode === "both") {
         lines.push(
           "#" + id + "-ad-" + i + ":checked~#" + id + " .xadc-anim{animation:none!important;}"
         );
       }
     }
-
-    /* reset all dots (placed after so specifics above win) */
     lines.push("#" + id + " .xadc-dot{background:#ccc;transform:none;}");
-
     return lines.join("\n");
   }
-
 
   /* ══════════════════════════════════════════════════════
    * HTML
@@ -226,7 +144,6 @@
   function buildHTML(id, n, height, mode) {
     var h = "";
 
-    /* radio inputs (manual / both) */
     if (mode !== "auto") {
       for (var r = 1; r <= n; r++) {
         h += '<input type="radio" name="' + id + '-ads" id="' + id + '-ad-' + r + '"'
@@ -236,7 +153,6 @@
 
     h += '<div class="xadc-wrap" id="' + id + '">';
 
-    /* nav arrows */
     if (mode !== "auto") {
       h += '<div class="xadc-nav">';
       for (var a = 1; a <= n; a++) {
@@ -248,35 +164,30 @@
       h += '</div>';
     }
 
-    /* animation-wrapper (auto/both) wraps carousel-track */
     var wO = mode !== "manual" ? '<div class="xadc-anim">' : "";
     var wC = mode !== "manual" ? "</div>"                  : "";
 
     h += wO + '<div class="xadc-track">';
     for (var s = 1; s <= n; s++) {
-      /* inline height = concrete pixels for GPT at render time */
-      h += '<div class="xadc-slide"'
-         + ' id="' + id + '-slide-' + s + '"'
-         + ' style="height:' + height + 'px;min-height:' + height + 'px;">'
+      h += '<div class="xadc-slide" id="' + id + '-slide-' + s + '"'
+         + ' style="height:' + px(height) + ';min-height:' + px(height) + ';">'
          + '</div>';
     }
     h += '</div>' + wC;
 
-    /* dots */
     h += '<div class="xadc-dots">';
     for (var d = 1; d <= n; d++) {
       if (mode !== "auto") {
-        h += '<label for="' + id + '-ad-' + d + '" class="xadc-dot' + (d===1?" is-active":"") + '"></label>';
+        h += '<label for="' + id + '-ad-' + d + '" class="xadc-dot' + (d === 1 ? " is-active" : "") + '"></label>';
       } else {
-        h += '<button class="xadc-dot' + (d===1?" is-active":"") + '" data-idx="' + (d-1) + '"></button>';
+        h += '<button class="xadc-dot' + (d === 1 ? " is-active" : "") + '" data-idx="' + (d - 1) + '"></button>';
       }
     }
     h += '</div>';
 
-    h += '</div>'; /* .xadc-wrap */
+    h += '</div>';
     return h;
   }
-
 
   /* ══════════════════════════════════════════════════════
    * GPT
@@ -297,28 +208,23 @@
   function initSlots(id, adUnit, n, adSize) {
     loadGPT(function () {
       var gt = window.googletag;
-
       for (var i = 1; i <= n; i++) {
         gt.defineSlot(adUnit, adSize, id + "-slide-" + i)
           .addService(gt.pubads());
       }
-
-      /* enableSingleRequest + enableServices only once globally */
       if (!_svcEnabled) {
         _svcEnabled = true;
         gt.pubads().enableSingleRequest();
         gt.enableServices();
       }
-
       for (var j = 1; j <= n; j++) {
         gt.display(id + "-slide-" + j);
       }
     });
   }
 
-
   /* ══════════════════════════════════════════════════════
-   * DOT SYNC  (auto/both mode)
+   * DOT SYNC
    * ══════════════════════════════════════════════════════ */
   function syncDots(id, n, duration) {
     var dots  = document.querySelectorAll("#" + id + " .xadc-dot");
@@ -326,74 +232,99 @@
 
     function activate(idx) {
       cur = ((idx % n) + n) % n;
-      dots.forEach(function(d, i) { d.classList.toggle("is-active", i === cur); });
+      dots.forEach(function (d, i) { d.classList.toggle("is-active", i === cur); });
     }
 
-    var timer = setInterval(function() { activate(cur + 1); }, duration * 1000);
-
-    /* dot click — highlight immediately */
-    dots.forEach(function(dot, i) {
-      dot.addEventListener("click", function() { activate(i); });
+    dots.forEach(function (dot, i) {
+      dot.addEventListener("click", function () { activate(i); });
     });
 
-    /* pause when tab hidden */
-    document.addEventListener("visibilitychange", function() {
+    var timer = setInterval(function () { activate(cur + 1); }, duration * 1000);
+    document.addEventListener("visibilitychange", function () {
       if (document.hidden) { clearInterval(timer); }
-      else { timer = setInterval(function() { activate(cur+1); }, duration*1000); }
+      else { timer = setInterval(function () { activate(cur + 1); }, duration * 1000); }
     });
   }
 
-
   /* ══════════════════════════════════════════════════════
-   * MAIN API
+   * CORE — render one carousel instance
    * ══════════════════════════════════════════════════════ */
-  function XadCarousel(adUnit, slideCount, height, duration, mode, adSize) {
-
-    /* defaults */
-    slideCount = Math.max(2, Math.min(parseInt(slideCount,10)||3, 10));
-    height     = parseInt(height,  10) || 300;
-    duration   = parseInt(duration,10) || 5;
-    mode       = (["auto","manual","both"].indexOf((mode||"").toLowerCase()) !== -1)
+  function _render(adUnit, slideCount, height, duration, mode, adSize, anchor) {
+    slideCount = Math.max(2, Math.min(parseInt(slideCount, 10) || 3, 10));
+    height     = parseInt(height,   10) || 300;
+    duration   = parseInt(duration, 10) || 5;
+    mode       = (["auto","manual","both"].indexOf((mode || "").toLowerCase()) !== -1)
                ? mode.toLowerCase() : "auto";
     adSize     = Array.isArray(adSize) ? adSize : [300, 250];
 
     var id = uid();
 
-    /* 1. CSS */
+    /* CSS */
     addStyle(
       buildInstanceCSS(id, slideCount, height, duration, mode) +
       buildManualCSS(id, slideCount, mode),
       id + "-css"
     );
 
-    /* 2. HTML — insert after the calling <script> tag */
-    var html      = buildHTML(id, slideCount, height, mode);
-    var curScript = document.currentScript || (function(){
-      var s = document.querySelectorAll("script"); return s[s.length-1];
-    }());
+    /* HTML — insert after anchor <script> tag if provided, else append to body */
+    var html = buildHTML(id, slideCount, height, mode);
+    var tmp  = document.createElement("div");
+    tmp.innerHTML = html;
+    var frag = document.createDocumentFragment();
+    while (tmp.firstChild) frag.appendChild(tmp.firstChild);
 
-    if (curScript && curScript.parentNode) {
-      var tmp = document.createElement("div");
-      tmp.innerHTML = html;
-      var frag = document.createDocumentFragment();
-      while (tmp.firstChild) frag.appendChild(tmp.firstChild);
-      curScript.parentNode.insertBefore(frag, curScript.nextSibling);
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.insertBefore(frag, anchor.nextSibling);
     } else {
-      document.write(html);
+      /* async/defer fallback: append to body */
+      onReady(function () { document.body.appendChild(frag); });
     }
 
-    /* 3. GPT slots */
-    onReady(function() { initSlots(id, adUnit, slideCount, adSize); });
+    /* GPT + dots */
+    onReady(function () {
+      initSlots(id, adUnit, slideCount, adSize);
+      if (mode !== "manual") syncDots(id, slideCount, duration);
+    });
 
-    /* 4. dot sync */
-    if (mode !== "manual") {
-      onReady(function() { syncDots(id, slideCount, duration); });
-    }
-
-    return { id:id, adUnit:adUnit, slideCount:slideCount,
-             height:height, duration:duration, mode:mode, adSize:adSize };
+    return { id: id, adUnit: adUnit, slideCount: slideCount,
+             height: height, duration: duration, mode: mode, adSize: adSize };
   }
 
+  /* ══════════════════════════════════════════════════════
+   * PUBLIC API — XadCarousel(adUnit, n, h, dur, mode, size)
+   *
+   * ASYNC-SAFE QUEUE DRAIN:
+   * If the stub was set up before the library loaded, any calls
+   * queued in window._xadQ[] are replayed now in order.
+   * ══════════════════════════════════════════════════════ */
+  function XadCarousel(adUnit, slideCount, height, duration, mode, adSize) {
+    var anchor = document.currentScript || (function () {
+      var s = document.querySelectorAll("script"); return s[s.length - 1];
+    }());
+    return _render(adUnit, slideCount, height, duration, mode, adSize, anchor);
+  }
+
+  /* drain any queued calls from the stub */
+  function _drainQueue() {
+    var q = global._xadQ;
+    if (!Array.isArray(q)) return;
+    /* each item in queue is an arguments array: [adUnit, n, h, dur, mode, size] */
+    for (var i = 0; i < q.length; i++) {
+      var args = q[i];
+      /* queued calls have no live script anchor — append to body */
+      _render(args[0], args[1], args[2], args[3], args[4], args[5], null);
+    }
+    global._xadQ = [];   /* clear queue */
+  }
+
+  /* expose */
   global.XadCarousel = XadCarousel;
+  global._xadQ = global._xadQ || [];
+
+  /* drain immediately (library arrived after calls were queued) */
+  _drainQueue();
+
+  /* also drain on DOMContentLoaded in case queue was filled very early */
+  onReady(_drainQueue);
 
 }(typeof window !== "undefined" ? window : this));
