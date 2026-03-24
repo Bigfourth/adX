@@ -1,3 +1,7 @@
+// ============================================================
+// KHỞI TẠO, CONFIG & MICROSOFT CLARITY
+// ============================================================
+
 /**
  * Config toàn cục — ghi đè bằng AdLibInit()
  * refresh.interval = 0  → tắt refresh
@@ -26,31 +30,38 @@ var _adlib_config = {
  */
 function AdLibInit(opts) {
   if (!opts) return;
-
-  // Backward compat: AdLibInit('clarityId')
   if (typeof opts === 'string') { _adlib_loadClarity(opts); return; }
 
-  if (opts.clarityId)  _adlib_loadClarity(opts.clarityId);
-
-  // Deep merge config
+  if (opts.clarityId)   _adlib_loadClarity(opts.clarityId);
   if (opts.lazyLoad    !== undefined) _adlib_config.lazyLoad     = opts.lazyLoad;
   if (opts.fetchMargin !== undefined) _adlib_config.fetchMargin  = opts.fetchMargin;
   if (opts.renderMargin!== undefined) _adlib_config.renderMargin = opts.renderMargin;
   if (opts.refresh)    Object.assign(_adlib_config.refresh,   opts.refresh);
   if (opts.frequency)  Object.assign(_adlib_config.frequency, opts.frequency);
 
-  // Kích hoạt GPT lazy load nếu được bật
-  if (_adlib_config.lazyLoad) {
-    _checkGPTExists();
-    window.googletag = window.googletag || { cmd: [] };
-    googletag.cmd.push(function () {
+  _adlib_initGPT();
+}
+
+/**
+ * Khởi tạo GPT một lần duy nhất:
+ * enableSingleRequest + enableLazyLoad + enableServices
+ * Tất cả các hàm Adx* chỉ cần defineSlot + display, không gọi lại những API này nữa.
+ */
+var _adlib_gptReady = false;
+function _adlib_initGPT() {
+  if (_adlib_gptReady) return;
+  _adlib_gptReady = true;
+  _checkGPTExists();
+  window.googletag = window.googletag || { cmd: [] };
+  googletag.cmd.push(function () {
+    if (_adlib_config.lazyLoad) {
       googletag.pubads().enableLazyLoad({
         fetchMarginPercent : _adlib_config.fetchMargin,
         renderMarginPercent: _adlib_config.renderMargin,
-        mobileScaling      : 2.0
+        mobileScaling      : 2.0,
       });
-    });
-  }
+    }
+  });
 }
 
 function _adlib_loadClarity(id) {
@@ -62,7 +73,6 @@ function _adlib_loadClarity(id) {
     y = l.getElementsByTagName(r)[0]; y.parentNode.insertBefore(t, y);
   })(window, document, 'clarity', 'script', id);
 }
-
 
 // ============================================================
 // REFRESH ENGINE (private)
@@ -112,7 +122,6 @@ function _adlib_registerRefresh(slot, containerId) {
   }, cfg.interval * 1000);
 }
 
-
 // ============================================================
 // FREQUENCY CAP ENGINE (private)
 // ============================================================
@@ -146,7 +155,6 @@ function _adlib_checkFrequency(key) {
 
   return true;
 }
-
 
 // ============================================================
 // UTILITIES (private)
@@ -219,7 +227,6 @@ function _findContentArea(target) {
   return best || document.body;
 }
 
-
 // ============================================================
 // CLOSE BUTTON SYSTEM
 // ============================================================
@@ -280,6 +287,7 @@ function _renderCloseBtn(targetId, slot, vPos, hPos) {
   setTimeout(function () { btn.classList.add('adlib-close-show'); }, 200);
 }
 
+
 // ============================================================
 // ADX — INTERSTITIAL
 // ============================================================
@@ -289,18 +297,14 @@ function _renderCloseBtn(targetId, slot, vPos, hPos) {
  * @param {string} adUnit
  */
 function AdxInterstitial(adUnit) {
-  _checkGPTExists();
-  window.googletag = window.googletag || { cmd: [] };
+  _adlib_initGPT();
   googletag.cmd.push(function () {
     var slot = googletag.defineOutOfPageSlot(adUnit, googletag.enums.OutOfPageFormat.INTERSTITIAL);
     if (!slot) return;
     slot.addService(googletag.pubads());
-    googletag.pubads().enableSingleRequest();
-    googletag.enableServices();
     googletag.display(slot);
   });
 }
-
 
 // ============================================================
 // ADX — REWARDED
@@ -321,10 +325,9 @@ function AdxRewarded(adUnit, isDisplay, pageView) {
   if (!_checkPageView(adUnit, pageView)) return;
 
   sessionStorage.setItem('adlib_rewarded_' + adUnit, 'true');
-  _checkGPTExists();
-  window.googletag = window.googletag || { cmd: [] };
 
   var rewardedSlot, rewardPayload;
+  _adlib_initGPT();
   googletag.cmd.push(function () {
     rewardedSlot = googletag.defineOutOfPageSlot(adUnit, googletag.enums.OutOfPageFormat.REWARDED);
     if (!rewardedSlot) { window.adlib_rewarded_done = true; return; }
@@ -340,11 +343,9 @@ function AdxRewarded(adUnit, isDisplay, pageView) {
     googletag.pubads().addEventListener('slotRenderEnded', function (e) {
       if (e.slot === rewardedSlot && e.isEmpty) window.adlib_rewarded_done = true;
     });
-    googletag.enableServices();
     googletag.display(rewardedSlot);
   });
 }
-
 
 // ============================================================
 // ADX — CATFISH
@@ -372,7 +373,7 @@ function AdxCatfish(adUnit, isDisplay, pageView, closeBtnPos, bottom) {
   var gpt_id = _randomID();
   var cId    = 'adlib-catfish-' + gpt_id;
 
-  window.addEventListener('scroll', function () {
+  window.addEventListener('scroll', _adlib_throttle(function () {
     var st        = window.pageYOffset || document.documentElement.scrollTop;
     var container = document.getElementById(cId);
 
@@ -393,11 +394,10 @@ function AdxCatfish(adUnit, isDisplay, pageView, closeBtnPos, bottom) {
       }, 400);
     }
     lastST = st <= 0 ? 0 : st;
-  }, { passive: true });
+  }), { passive: true });
 }
 
 function _renderCatfishAd(adUnit, gpt_id, cId, closeBtnPos, bottom) {
-  _checkGPTExists();
   document.body.insertAdjacentHTML('beforeend', `
     <div id="${cId}" style="position:fixed;bottom:${bottom}px;left:0;width:100%;z-index:2147483646;display:flex;justify-content:center;pointer-events:none;transition:all .4s ease-in-out;opacity:0;transform:translateY(100%);">
       <div id="wrap-cat-${gpt_id}" style="position:relative;pointer-events:auto;background:transparent;line-height:0;">
@@ -405,7 +405,7 @@ function _renderCatfishAd(adUnit, gpt_id, cId, closeBtnPos, bottom) {
       </div>
     </div>`);
 
-  window.googletag = window.googletag || { cmd: [] };
+  _adlib_initGPT();
   googletag.cmd.push(function () {
     var mapping = googletag.sizeMapping()
       .addSize([1024, 0], [[728, 90]])
@@ -414,8 +414,6 @@ function _renderCatfishAd(adUnit, gpt_id, cId, closeBtnPos, bottom) {
 
     var slot = googletag.defineSlot(adUnit, [[728, 90], [300, 100], [300, 50], [320, 100], [320, 50]], gpt_id)
       .defineSizeMapping(mapping).addService(googletag.pubads());
-    googletag.pubads().enableSingleRequest();
-    googletag.enableServices();
     googletag.display(gpt_id);
 
     googletag.pubads().addEventListener('slotRenderEnded', function (e) {
@@ -459,7 +457,6 @@ function AdxCatfishAuto(adUnit, adSize, isDisplay, pageView, bottom) {
   if (!_checkPageView(adUnit, pageView)) return;
   if (!_adlib_checkFrequency('catfish')) return;
 
-  _checkGPTExists();
   var gpt_id = _randomID();
   var cId    = 'adlib-catfish-auto-' + gpt_id;
 
@@ -469,14 +466,12 @@ function AdxCatfishAuto(adUnit, adSize, isDisplay, pageView, bottom) {
       <div id="${gpt_id}" style="min-width:${adSize[0]}px;min-height:${adSize[1]}px;"></div>
     </div>`);
 
-  window.googletag = window.googletag || { cmd: [] };
   var isAdLoaded = false, isVisible = false;
   var triggerPos = window.innerHeight * 1.5;
 
+  _adlib_initGPT();
   googletag.cmd.push(function () {
     var slot = googletag.defineSlot(adUnit, adSize, gpt_id).addService(googletag.pubads());
-    googletag.pubads().enableSingleRequest();
-    googletag.enableServices();
     googletag.pubads().addEventListener('slotRenderEnded', function (e) {
       if      (e.slot === slot && !e.isEmpty) { isAdLoaded = true; _adlib_registerRefresh(slot, cId); }
       else if (e.slot === slot &&  e.isEmpty) { var c = document.getElementById(cId); if (c) c.remove(); }
@@ -484,16 +479,15 @@ function AdxCatfishAuto(adUnit, adSize, isDisplay, pageView, bottom) {
     googletag.display(gpt_id);
   });
 
-  window.addEventListener('scroll', function () {
+  window.addEventListener('scroll', _adlib_throttle(function () {
     var c = document.getElementById(cId); if (!c) return;
     if (isAdLoaded && window.scrollY > triggerPos && !isVisible) {
       c.style.display = 'flex'; isVisible = true;
     } else if (window.scrollY <= triggerPos && isVisible) {
       c.style.display = 'none'; isVisible = false;
     }
-  });
+  }), { passive: true });
 }
-
 
 // ============================================================
 // ADX — FIRSTVIEW (POPUP)
@@ -515,7 +509,6 @@ function AdxFirstView(adUnit, isDisplay, pageView, closeBtnPos) {
   if (!_checkPageView(adUnit, pageView)) return;
   if (!_adlib_checkFrequency('firstview')) return;
 
-  _checkGPTExists();
   var gpt_id = _randomID();
   var cId    = 'adlib-fv-' + gpt_id;
 
@@ -527,7 +520,7 @@ function AdxFirstView(adUnit, isDisplay, pageView, closeBtnPos) {
       </div>
     </div>`);
 
-  window.googletag = window.googletag || { cmd: [] };
+  _adlib_initGPT();
   googletag.cmd.push(function () {
     var mapping = googletag.sizeMapping()
       // PC ≥ 1024px: ưu tiên size lớn, thêm 640×480 và 580×400
@@ -543,8 +536,6 @@ function AdxFirstView(adUnit, isDisplay, pageView, closeBtnPos) {
     var slot = googletag.defineSlot(adUnit, allSizes, gpt_id)
       .defineSizeMapping(mapping)
       .addService(googletag.pubads());
-    googletag.pubads().enableSingleRequest();
-    googletag.enableServices();
     googletag.display(gpt_id);
 
     googletag.pubads().addEventListener('slotRenderEnded', function (e) {
@@ -556,7 +547,6 @@ function AdxFirstView(adUnit, isDisplay, pageView, closeBtnPos) {
     });
   });
 }
-
 
 // ============================================================
 // ADX — BANNER (INLINE)
@@ -578,11 +568,10 @@ function AdxBanner(adUnit, adSize, mapping, element, insertPosition, setMin) {
 
   var el = document.body.querySelector(element);
   if (!el) return;
-  _checkGPTExists();
   var gpt_id = _randomID();
-  window.googletag = window.googletag || { cmd: [] };
 
   var adSlot; // hoist ra ngoài để nested cmd.push truy cập được
+  _adlib_initGPT();
   googletag.cmd.push(function () {
     adSlot = googletag.defineSlot(adUnit, adSize, gpt_id).addService(googletag.pubads());
     if (mapping.length) {
@@ -592,8 +581,6 @@ function AdxBanner(adUnit, adSize, mapping, element, insertPosition, setMin) {
       });
       adSlot.defineSizeMapping(sm.build());
     }
-    googletag.pubads().enableSingleRequest();
-    googletag.enableServices();
   });
 
   var minStyle = '';
@@ -613,6 +600,7 @@ function AdxBanner(adUnit, adSize, mapping, element, insertPosition, setMin) {
   else if (insertPosition === 3) el.insertAdjacentHTML('afterend',    html);
   else                           el.insertAdjacentHTML('beforeend',   html);
 
+  _adlib_initGPT();
   googletag.cmd.push(function () {
     googletag.display(gpt_id);
     _adlib_registerRefresh(adSlot, gpt_id);
@@ -666,7 +654,6 @@ function AdxAutoAds(adUnit, start, end, adSize, mapping, elements, insertPositio
   }
 }
 
-
 // ============================================================
 // ADX — IN-PAGE (SCROLL AD, mobile only)
 // ============================================================
@@ -682,12 +669,9 @@ function AdxInPage(adUnit, element, marginTop) {
   marginTop = marginTop !== undefined ? marginTop : -1;
 
   var gpt_id = _randomID();
-  _checkGPTExists();
-  window.googletag = window.googletag || { cmd: [] };
+  _adlib_initGPT();
   googletag.cmd.push(function () {
     googletag.defineSlot(adUnit, [300, 600], gpt_id).addService(googletag.pubads());
-    googletag.pubads().enableSingleRequest();
-    googletag.enableServices();
   });
 
   var parent = document.querySelectorAll(element)[0];
@@ -705,7 +689,7 @@ function AdxInPage(adUnit, element, marginTop) {
   googletag.cmd.push(function () { googletag.display(gpt_id); });
 
   var mt = marginTop >= 0 ? marginTop : (window.innerHeight - 600) / 2;
-  window.addEventListener('scroll', function () {
+  window.addEventListener('scroll', _adlib_throttle(function () {
     var wrap = document.getElementById('adlib-ip-wrap-' + gpt_id);
     var ad   = document.getElementById('adlib-ip-ad-'   + gpt_id);
     if (!wrap || !ad) return;
@@ -713,9 +697,8 @@ function AdxInPage(adUnit, element, marginTop) {
     var bot = top > 0 ? 600 : 600 + top;
     ad.style.cssText = 'display:block;clip:rect(' + top + 'px,300px,' + bot + 'px,0px);'
       + 'left:' + ((window.innerWidth - 300) / 2) + 'px;top:' + mt + 'px;position:fixed;z-index:10000;';
-  });
+  }), { passive: true });
 }
-
 
 // ============================================================
 // ADX — IN-IMAGE
@@ -739,10 +722,9 @@ function AdxInImage(adUnit, adSize, mapping, element, imageIndex, marginBottom) 
   var image  = images[imageIndex - 1];
   if (!image) return;
 
-  _checkGPTExists();
   var gpt_id = _randomID();
-  window.googletag = window.googletag || { cmd: [] };
 
+  _adlib_initGPT();
   googletag.cmd.push(function () {
     var adSlot = googletag.defineSlot(adUnit, adSize, gpt_id).addService(googletag.pubads());
     if (mapping.length) {
@@ -750,8 +732,6 @@ function AdxInImage(adUnit, adSize, mapping, element, imageIndex, marginBottom) 
       mapping.forEach(function (m) { sm.addSize(m.breakpoint, Array.isArray(m.size[0]) ? m.size : [m.size]); });
       adSlot.defineSizeMapping(sm.build());
     }
-    googletag.pubads().enableSingleRequest();
-    googletag.enableServices();
   });
 
   var wrapper  = document.createElement('div');
@@ -809,7 +789,6 @@ function AdxInImages(adUnit, start, end, adSize, mapping, element, imageList, ma
     AdxInImage(adUnit + (start++), adSize, mapping || [], element, i, marginBottom);
   }
 }
-
 
 // ============================================================
 // ADX — MULTIPLE SIZE (cuộn nội dung full-height, mobile only)
@@ -879,13 +858,9 @@ function AdxMultipleSizes(adUnit, start, end, elements, insertPosition, marginTo
 function _adlib_msAdd(adUnit, element, insertPosition) {
   var el = document.body.querySelector(element);
   if (!el) return;
-  _checkGPTExists();
   var gpt_id = _randomID();
-  window.googletag = window.googletag || { cmd: [] };
   googletag.cmd.push(function () {
     googletag.defineSlot(adUnit, [[300, 250], [300, 600]], gpt_id).addService(googletag.pubads());
-    googletag.pubads().enableSingleRequest();
-    googletag.enableServices();
   });
 
   var html = `<div class="adlib-multisize" style="margin:10px calc(50% - 50vw);width:100vw;">
@@ -905,10 +880,20 @@ function _adlib_msAdd(adUnit, element, insertPosition) {
 }
 
 var _adlib_msScrollBound = false;
+// rAF throttle — dùng chung cho tất cả scroll listener, tránh jank
+function _adlib_throttle(fn) {
+  var ticking = false;
+  return function () {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(function () { fn(); ticking = false; });
+  };
+}
+
 function _adlib_msScroll(marginTop) {
   if (_adlib_msScrollBound) return;
   _adlib_msScrollBound = true;
-  document.addEventListener('scroll', function () {
+  document.addEventListener('scroll', _adlib_throttle(function () {
     document.querySelectorAll('.adlib-multisize').forEach(function (e) {
       var div  = e.querySelector('.adlib-ms-ad');
       var wrap = e.querySelector('.adlib-ms-wrap');
@@ -926,9 +911,8 @@ function _adlib_msScroll(marginTop) {
         div.style.cssText = '';
       }
     });
-  });
+  }), { passive: true });
 }
-
 
 // ============================================================
 // ADX — WIPE (nổi góc dưới phải, mobile only)
@@ -947,7 +931,6 @@ function AdxWipe(adUnit, delay, closeBtnPos) {
   if (!_adlib_checkFrequency('wipe')) return;
 
   setTimeout(function () {
-    _checkGPTExists();
     var gpt_id = _randomID();
     var cId    = 'adlib-wipe-' + gpt_id;
 
@@ -958,11 +941,9 @@ function AdxWipe(adUnit, delay, closeBtnPos) {
         </div>
       </div>`);
 
-    window.googletag = window.googletag || { cmd: [] };
+    _adlib_initGPT();
     googletag.cmd.push(function () {
       var slot = googletag.defineSlot(adUnit, [300, 250], gpt_id).addService(googletag.pubads());
-      googletag.pubads().enableSingleRequest();
-      googletag.enableServices();
       googletag.display(gpt_id);
       googletag.pubads().addEventListener('slotRenderEnded', function (e) {
         if (e.slot === slot && !e.isEmpty) {
@@ -977,7 +958,6 @@ function AdxWipe(adUnit, delay, closeBtnPos) {
   }, delay);
 }
 
-
 // ============================================================
 // ADX — BALLOON (nổi góc dưới phải, PC only)
 // ============================================================
@@ -986,35 +966,38 @@ function AdxWipe(adUnit, delay, closeBtnPos) {
  * AdxBalloon: Quảng cáo nổi góc dưới phải (chỉ PC)
  * @param {string} adUnit
  * @param {array}  [adSize=[[300,250],[336,280],[300,300],[300,400]]]
- * @param {number} [closeBtnPos=1]
  */
-function AdxBalloon(adUnit, adSize, closeBtnPos) {
+function AdxBalloon(adUnit, adSize) {
   if (window.innerWidth < 768) return;
-  adSize      = adSize      || [[300, 250], [336, 280], [300, 300], [300, 400]];
-  closeBtnPos = closeBtnPos !== undefined ? closeBtnPos : 1;
+  adSize = adSize || [[300, 250], [336, 280], [300, 300], [300, 400]];
   if (!_adlib_checkFrequency('balloon')) return;
 
-  _checkGPTExists();
   var gpt_id = _randomID();
   var cId    = 'adlib-balloon-' + gpt_id;
 
+  // Dùng opacity:0 + pointer-events:none thay vì display:none
+  // → element vẫn có kích thước thực trên DOM → GPT lazy load fetch được
   document.body.insertAdjacentHTML('beforeend', `
-    <div id="${cId}" style="display:none;position:fixed;bottom:10px;right:10px;z-index:2147483646;">
-      <div id="wrap-${gpt_id}" style="position:relative;background:#fff;box-shadow:0 0 15px rgba(0,0,0,.2);padding:2px;border-radius:4px;max-width:340px;">
-        <div id="${gpt_id}" style="min-width:300px;"></div>
+    <div id="${cId}" style="position:fixed;bottom:10px;right:10px;z-index:2147483646;opacity:0;pointer-events:none;transition:opacity .3s ease;">
+      <div style="position:relative;background:#fff;box-shadow:0 4px 20px rgba(0,0,0,.25);border-radius:6px;overflow:hidden;">
+        <button id="close-${gpt_id}" style="position:absolute;top:4px;right:4px;z-index:1;width:20px;height:20px;background:rgba(0,0,0,.5);color:#fff;border:none;border-radius:50%;cursor:pointer;font-size:11px;line-height:1;padding:0;">✕</button>
+        <div id="${gpt_id}"></div>
       </div>
     </div>`);
 
-  window.googletag = window.googletag || { cmd: [] };
+  document.getElementById('close-' + gpt_id).addEventListener('click', function () {
+    var c = document.getElementById(cId);
+    if (c) { c.style.opacity = '0'; setTimeout(function () { c.remove(); }, 300); }
+  });
+
+  _adlib_initGPT();
   googletag.cmd.push(function () {
     var slot = googletag.defineSlot(adUnit, adSize, gpt_id).addService(googletag.pubads());
-    googletag.pubads().enableSingleRequest();
-    googletag.enableServices();
     googletag.display(gpt_id);
     googletag.pubads().addEventListener('slotRenderEnded', function (e) {
       if (e.slot === slot && !e.isEmpty) {
-        var c = document.getElementById(cId); if (c) c.style.display = 'block';
-        _renderCloseBtn('wrap-' + gpt_id, slot, 0, closeBtnPos);
+        var c = document.getElementById(cId);
+        if (c) { c.style.opacity = '1'; c.style.pointerEvents = 'auto'; }
         _adlib_registerRefresh(slot, cId);
       } else if (e.slot === slot && e.isEmpty) {
         var c = document.getElementById(cId); if (c) c.remove();
@@ -1022,7 +1005,6 @@ function AdxBalloon(adUnit, adSize, closeBtnPos) {
     });
   });
 }
-
 
 // ============================================================
 // ADX — SCROLL REVEAL
@@ -1040,7 +1022,6 @@ function AdxScrollReveal(adUnit, target) {
   var ps = area.querySelectorAll('p');
   if (ps.length < 2) return;
 
-  _checkGPTExists();
   var gpt_id = _randomID();
   var cId    = 'adlib-reveal-' + gpt_id;
   var targetEl = ps[Math.floor(ps.length / 2)];
@@ -1056,11 +1037,9 @@ function AdxScrollReveal(adUnit, target) {
 
   _adlib_scrollRevealBind(cId);
 
-  window.googletag = window.googletag || { cmd: [] };
+  _adlib_initGPT();
   googletag.cmd.push(function () {
     var slot = googletag.defineSlot(adUnit, [[336, 280], [300, 250]], gpt_id).addService(googletag.pubads());
-    googletag.pubads().enableSingleRequest();
-    googletag.enableServices();
     googletag.display(gpt_id);
     googletag.pubads().addEventListener('slotRenderEnded', function (e) {
       if (e.slot === slot && e.isEmpty) {
@@ -1101,16 +1080,15 @@ function AsenseScrollReveal(client, slotId, target) {
 }
 
 function _adlib_scrollRevealBind(cId) {
-  window.addEventListener('scroll', function () {
+  window.addEventListener('scroll', _adlib_throttle(function () {
     var wrapper   = document.getElementById(cId + '-wrapper');
     var container = document.getElementById(cId);
     if (!wrapper || !container) return;
     var rect = wrapper.getBoundingClientRect();
     var inView = rect.top < window.innerHeight && rect.bottom > 0;
     container.style.display = inView ? 'flex' : 'none';
-  }, { passive: true });
+  }), { passive: true });
 }
-
 
 // ============================================================
 // ADSENSE
@@ -1174,7 +1152,7 @@ function AdsenseInPage(client, slotId, element, marginTop) {
   (adsbygoogle = window.adsbygoogle || []).push({});
 
   var mt = marginTop >= 0 ? marginTop : (window.innerHeight - 600) / 2;
-  window.addEventListener('scroll', function () {
+  window.addEventListener('scroll', _adlib_throttle(function () {
     var wrap = document.getElementById(aid + '-wrap');
     var ad   = document.getElementById(aid + '-ad');
     if (!wrap || !ad) return;
@@ -1182,7 +1160,7 @@ function AdsenseInPage(client, slotId, element, marginTop) {
     var bot = top > 0 ? 600 : 600 + top;
     ad.style.cssText = 'display:block;clip:rect(' + top + 'px,300px,' + bot + 'px,0px);'
       + 'left:' + ((window.innerWidth - 300) / 2) + 'px;top:' + mt + 'px;position:fixed;z-index:10000;';
-  });
+  }), { passive: true });
 }
 
 /**
@@ -1193,7 +1171,7 @@ function AdsenseInPage(client, slotId, element, marginTop) {
  *                                      Mobile: [300,250] | PC: [640,480]
  */
 function AdsenseFirstView(client, slotId, adSize) {
-  // Tự chọn size theo thiết bị nếu không truyền
+  if (!_adlib_checkFrequency('firstview')) return;
   var isMobile = window.innerWidth < 768;
   if (!adSize) adSize = isMobile ? [300, 250] : [640, 480];
 
@@ -1234,6 +1212,22 @@ function AdsenseFirstView(client, slotId, adSize) {
   }, 1000);
 }
 
+// ============================================================
+// AUTO-INIT
+// Ưu tiên theo thứ tự:
+//   1. ?id=  trong src của chính thẻ script này  → clarityId
+//   2. window.AdLibConfig.clarityId              → ghi đè nếu có
+//
+//  Cách dùng đơn giản nhất (1 thẻ script, id trong URL):
+//    var s = document.createElement('script');
+//    s.src = 'adlib.js?id=YOUR_CLARITY_ID';
+//    s.onload = function () { AdxCatfish('...'); };
+//    document.head.appendChild(s);
+//
+//  Hoặc kết hợp config đầy đủ + id trong URL:
+//    window.AdLibConfig = { refresh: { interval: 30 }, frequency: { cap: 3 } };
+//    s.src = 'adlib.js?id=YOUR_CLARITY_ID';
+// ============================================================
 (function () {
   // Capture ngay khi script đang thực thi — document.currentScript
   // chỉ có giá trị tại thời điểm này, sẽ là null trong callback async
