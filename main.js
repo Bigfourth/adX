@@ -1,13 +1,3 @@
-// ============================================================
-// KHỞI TẠO, CONFIG & MICROSOFT CLARITY
-// ============================================================
-
-/**
- * Config toàn cục — ghi đè bằng AdLibInit()
- * refresh.interval = 0  → tắt refresh
- * frequency.cap    = 0  → không giới hạn impression
- * frequency.cooldown=0  → không có cooldown
- */
 var _adlib_config = {
   lazyLoad    : true,
   fetchMargin : 500,   // px
@@ -507,7 +497,6 @@ function AdxFirstView(adUnit, isDisplay, pageView, closeBtnPos) {
 
   if (!_checkDevice(isDisplay)) return;
   if (!_checkPageView(adUnit, pageView)) return;
-  if (!_adlib_checkFrequency('firstview')) return;
 
   var gpt_id = _randomID();
   var cId    = 'adlib-fv-' + gpt_id;
@@ -1171,7 +1160,6 @@ function AdsenseInPage(client, slotId, element, marginTop) {
  *                                      Mobile: [300,250] | PC: [640,480]
  */
 function AdsenseFirstView(client, slotId, adSize) {
-  if (!_adlib_checkFrequency('firstview')) return;
   var isMobile = window.innerWidth < 768;
   if (!adSize) adSize = isMobile ? [300, 250] : [640, 480];
 
