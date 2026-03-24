@@ -394,3 +394,16 @@ AsenseScrollReveal(
   document.head.appendChild(s);
 </script>
 ```
+
+### Ad Carousel
+
+```
+<script src="https://cdn.jsdelivr.net/gh/Bigfourth/adX@main/xad-carousel.js"></script>
+<script>XadCarousel("/1234/my-ad", 4, 300, 5, "auto")</script>
+
+_ Adunit
+_ số lượng slide
+_ Chiều cao slide
+_ Thời gian chờ
+_ Chế độ load ( "auto" / "manual" / "both" )
+```
