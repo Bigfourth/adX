@@ -280,51 +280,6 @@ function _renderCloseBtn(targetId, slot, vPos, hPos) {
   setTimeout(function () { btn.classList.add('adlib-close-show'); }, 200);
 }
 
-
-// ============================================================
-// ADX — STICKY (ANCHOR)
-// ============================================================
-
-/**
- * AdxSticky: Quảng cáo anchor dính đầu/cuối trang (Out-of-Page)
- * @param {string} adUnit
- * @param {number} [adPosition=0]   - 0: bottom | 1: top (chỉ mobile)
- * @param {number} [closeBtnPos=1]  - 0:trái | 1:phải | 2:giữa
- */
-function AdxSticky(adUnit, adPosition, closeBtnPos) {
-  adPosition  = adPosition  !== undefined ? adPosition  : 0;
-  closeBtnPos = closeBtnPos !== undefined ? closeBtnPos : 1;
-
-  _checkGPTExists();
-  window.googletag = window.googletag || { cmd: [] };
-  googletag.cmd.push(function () {
-    var isTop = (document.body.clientWidth < 768 && adPosition !== 0);
-    var pos   = isTop
-      ? googletag.enums.OutOfPageFormat.TOP_ANCHOR
-      : googletag.enums.OutOfPageFormat.BOTTOM_ANCHOR;
-
-    var anchorSlot = googletag.defineOutOfPageSlot(adUnit, pos);
-    if (anchorSlot) {
-      anchorSlot.addService(googletag.pubads());
-      googletag.pubads().enableSingleRequest();
-      googletag.enableServices();
-      googletag.display(anchorSlot);
-    }
-
-    googletag.pubads().addEventListener('slotRenderEnded', function (event) {
-      if (event.slot === anchorSlot && !event.isEmpty) {
-        var container = document.querySelector('.google-anchor-ad-container')
-          || document.querySelector('div[id^="googletag_anchor_container"]');
-        if (container) {
-          if (!container.id) container.id = 'adlib-sticky-' + _randomID();
-          _renderCloseBtn(container.id, anchorSlot, adPosition, closeBtnPos);
-        }
-      }
-    });
-  });
-}
-
-
 // ============================================================
 // ADX — INTERSTITIAL
 // ============================================================
