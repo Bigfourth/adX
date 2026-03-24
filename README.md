@@ -60,17 +60,6 @@ Chỉ cần **1 thẻ script**. Clarity ID truyền qua `?id=` trên URL, config
 
 ## ADX
 
-### AdxSticky
-Dải quảng cáo cố định đầu hoặc cuối trang.
-
-```js
-AdxSticky(
-  '/NETWORK_CODE/sticky',
-  0,   // adPosition: 0=bottom | 1=top (chỉ mobile)
-  1    // closeBtnPos
-);
-```
-
 ---
 
 ### AdxInterstitial
